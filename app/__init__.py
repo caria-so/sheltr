@@ -1,0 +1,1 @@
+"""Sheltr FastAPI application package."""

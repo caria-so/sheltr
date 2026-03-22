@@ -1,0 +1,767 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Sheltr</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css"/>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+:root {
+  --bg:#f4f2ed; --surface:#ffffff;
+  --border:rgba(0,0,0,0.10); --border-md:rgba(0,0,0,0.16);
+  --text:#111110; --muted:#6b6a66; --faint:#a8a7a3;
+  --accent:#1a6af4; --accent-bg:#eaf0fe;
+  --green:#1d7a45; --green-bg:#e6f4ec;
+  --amber:#9a5a00; --amber-bg:#fef3e2;
+  --red:#c0392b; --red-bg:#fdecea;
+  --mono:'DM Mono',monospace; --sans:'DM Sans',sans-serif;
+  --r:12px; --r-sm:8px;
+  --safe-bottom:env(safe-area-inset-bottom,0px);
+}
+html,body { height:100%; width:100%; overflow:hidden; font-family:var(--sans); color:var(--text); }
+
+/* MAP */
+#map { position:fixed; inset:0; z-index:0; }
+.leaflet-control-attribution { display:none; }
+.leaflet-bottom.leaflet-right { bottom:200px !important; right:12px !important; }
+
+/* TOP BAR */
+#topbar {
+  position:fixed; top:0; left:0; right:0; z-index:20;
+  padding:12px 14px; display:flex; gap:8px; align-items:center; pointer-events:none;
+}
+#wind-pill {
+  display:flex; align-items:center; gap:8px;
+  background:var(--surface); border:1px solid var(--border); border-radius:24px;
+  padding:8px 14px 8px 10px; box-shadow:0 2px 10px rgba(0,0,0,0.10);
+  pointer-events:auto; flex:1; min-width:0;
+}
+#wind-pill-arrow { width:28px; height:28px; flex-shrink:0; }
+#wind-pill-main  { font-size:13px; font-weight:500; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#wind-pill-sub   { font-size:10px; color:var(--muted); font-family:var(--mono); }
+#gps-pill {
+  display:flex; align-items:center; gap:5px;
+  background:var(--surface); border:1px solid var(--border); border-radius:24px;
+  padding:8px 12px; font-size:11px; font-family:var(--mono);
+  box-shadow:0 2px 10px rgba(0,0,0,0.10); pointer-events:auto; white-space:nowrap;
+}
+#gps-dot { width:7px; height:7px; border-radius:50%; background:var(--faint); flex-shrink:0; }
+#gps-dot.ok { background:var(--green); } #gps-dot.warn { background:var(--amber); } #gps-dot.err { background:var(--red); }
+
+/* BOTTOM SHEET */
+#bottom-sheet {
+  position:fixed; bottom:0; left:0; right:0; z-index:20;
+  transform:translateY(100%); transition:transform 0.32s cubic-bezier(0.4,0,0.2,1);
+}
+#bottom-sheet.up { transform:translateY(0); }
+#sheet-inner {
+  background:var(--surface); border-radius:20px 20px 0 0;
+  border-top:1px solid var(--border); box-shadow:0 -4px 24px rgba(0,0,0,0.10);
+  overflow:hidden; padding-bottom:var(--safe-bottom);
+}
+#sheet-handle { width:36px; height:4px; background:var(--border-md); border-radius:2px; margin:10px auto 0; }
+
+/* loading card */
+#loading-card { display:flex; align-items:center; gap:12px; padding:18px 16px; }
+.spinner { width:20px; height:20px; border:2px solid var(--border-md); border-top-color:var(--text); border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
+@keyframes spin { to { transform:rotate(360deg); } }
+#loading-msg { font-size:13px; color:var(--muted); font-family:var(--mono); }
+
+/* on-shore card */
+#onshore-card { display:none; padding:14px 16px 16px; }
+#onshore-eyebrow { font-size:10px; font-family:var(--mono); color:var(--faint); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
+#onshore-name   { font-size:20px; font-weight:600; margin-bottom:2px; }
+#onshore-parent { font-size:12px; color:var(--muted); margin-bottom:14px; }
+#onshore-row { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+#onshore-num { font-size:40px; font-weight:600; font-family:var(--mono); line-height:1; flex-shrink:0; }
+#onshore-right { flex:1; }
+#onshore-bar-bg { height:4px; background:var(--bg); border-radius:2px; overflow:hidden; margin-bottom:6px; }
+#onshore-bar-fill { height:100%; border-radius:2px; }
+#onshore-badge { display:inline-block; font-size:11px; font-weight:500; padding:3px 10px; border-radius:20px; font-family:var(--mono); }
+#onshore-cta { width:100%; padding:13px; background:var(--text); color:#fff; border:none; border-radius:var(--r); font-size:14px; font-weight:600; font-family:var(--sans); cursor:pointer; }
+#onshore-cta:active { opacity:0.8; }
+
+/* nearby list */
+#nearby-card { display:none; padding:0 0 8px; }
+#nearby-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px 10px; }
+#nearby-title { font-size:13px; font-weight:600; }
+#nearby-sub   { font-size:11px; color:var(--muted); font-family:var(--mono); }
+.nearby-row { display:flex; align-items:center; gap:12px; padding:11px 16px; border-top:1px solid var(--border); cursor:pointer; }
+.nearby-row:active { background:var(--bg); }
+.nearby-name  { font-size:14px; font-weight:500; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.nearby-dist  { font-size:11px; color:var(--muted); font-family:var(--mono); margin-top:2px; }
+.nearby-score-num   { font-size:16px; font-weight:600; font-family:var(--mono); text-align:right; }
+.nearby-score-label { font-size:10px; font-family:var(--mono); text-align:right; }
+
+/* DETAIL PANEL */
+#detail-panel {
+  position:fixed; inset:0; z-index:30; background:var(--bg);
+  transform:translateX(100%); transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+#detail-panel.open { transform:translateX(0); }
+
+/* HISTORY PANEL */
+#history-panel {
+  position:fixed; inset:0; z-index:40; background:var(--bg);
+  transform:translateX(100%); transition:transform 0.28s cubic-bezier(0.4,0,0.2,1);
+  display:flex; flex-direction:column; overflow:hidden;
+}
+#history-panel.open { transform:translateX(0); }
+
+/* shared panel pieces */
+.panel-topbar {
+  display:flex; align-items:center; gap:12px; padding:16px 16px 12px;
+  background:var(--bg); border-bottom:1px solid var(--border); flex-shrink:0;
+}
+.panel-back {
+  width:36px; height:36px; border-radius:50%; border:1px solid var(--border-md);
+  background:var(--surface); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0;
+}
+.panel-back svg { width:16px; height:16px; stroke:var(--text); fill:none; }
+.panel-title { font-size:15px; font-weight:600; flex:1; }
+.panel-sub   { font-size:11px; color:var(--muted); font-family:var(--mono); margin-top:1px; }
+.panel-action { font-size:11px; font-family:var(--mono); color:var(--muted); cursor:pointer; }
+.panel-scroll { overflow-y:auto; flex:1; padding:14px 16px 40px; }
+
+/* detail pieces */
+.detail-hero { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:20px; text-align:center; margin-bottom:10px; }
+.detail-score-num { font-size:56px; font-weight:600; line-height:1; font-family:var(--mono); margin-bottom:4px; }
+.detail-score-label { font-size:11px; color:var(--muted); font-family:var(--mono); }
+.detail-badge { display:inline-block; font-size:11px; font-weight:500; padding:4px 12px; border-radius:20px; margin-top:8px; font-family:var(--mono); }
+.d-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:10px; }
+.d-cell { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px 12px; }
+.d-cell-label { font-size:10px; color:var(--faint); font-family:var(--mono); margin-bottom:3px; }
+.d-cell-val   { font-size:15px; font-weight:500; font-family:var(--mono); }
+
+.terrain-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; margin-bottom:10px; display:flex; align-items:center; gap:16px; }
+.compass-svg  { width:72px; height:72px; }
+.terrain-row  { font-size:12px; color:var(--muted); line-height:1.8; font-family:var(--mono); }
+.terrain-hi   { color:var(--text); font-weight:500; }
+
+.obs-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:14px 16px; margin-bottom:10px; }
+.obs-title { font-size:13px; font-weight:600; margin-bottom:14px; }
+.tap-group { margin-bottom:14px; }
+.tap-label { font-size:11px; color:var(--muted); font-family:var(--mono); margin-bottom:7px; }
+.tap-options { display:flex; gap:6px; flex-wrap:wrap; }
+.tap-opt { font-size:12px; font-family:var(--mono); padding:6px 12px; border-radius:20px; border:1px solid var(--border-md); color:var(--muted); background:var(--bg); cursor:pointer; user-select:none; }
+.tap-opt:active { transform:scale(0.96); }
+.tap-opt.sel { background:var(--accent-bg); border-color:var(--accent); color:var(--accent); }
+textarea.notes { width:100%; margin-top:14px; padding:10px 12px; border:1px solid var(--border-md); border-radius:var(--r-sm); font-size:13px; font-family:var(--sans); color:var(--text); background:var(--bg); resize:none; height:72px; outline:none; }
+textarea.notes:focus { border-color:var(--accent); }
+textarea.notes::placeholder { color:var(--faint); }
+.photo-row { display:flex; gap:10px; align-items:center; margin-top:14px; margin-bottom:4px; }
+.photo-btn { display:inline-flex; align-items:center; gap:6px; padding:8px 14px; border:1px dashed var(--border-md); border-radius:var(--r-sm); background:var(--bg); color:var(--muted); font-size:12px; font-family:var(--mono); cursor:pointer; }
+.photo-btn:active { opacity:0.7; }
+.photo-btn svg { flex-shrink:0; }
+.photo-preview { position:relative; }
+.photo-preview img { width:56px; height:56px; object-fit:cover; border-radius:var(--r-sm); border:1px solid var(--border); }
+.photo-preview .photo-remove { position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%; background:var(--text); color:#fff; border:2px solid var(--surface); font-size:11px; line-height:16px; text-align:center; cursor:pointer; }
+
+.btn-p { width:100%; padding:14px; background:var(--text); color:#fff; border:none; border-radius:var(--r); font-size:14px; font-weight:600; font-family:var(--sans); cursor:pointer; margin-bottom:8px; }
+.btn-p:active { opacity:0.8; } .btn-p:disabled { opacity:0.4; cursor:default; }
+.btn-g { width:100%; padding:13px; background:transparent; color:var(--muted); border:1px solid var(--border-md); border-radius:var(--r); font-size:13px; font-family:var(--sans); cursor:pointer; }
+.goto-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:20px 16px; text-align:center; margin-bottom:10px; }
+.goto-card .goto-icon { font-size:28px; margin-bottom:10px; }
+.goto-card .goto-msg { font-size:13px; color:var(--muted); line-height:1.6; margin-bottom:16px; }
+.goto-card .goto-link { display:inline-flex; align-items:center; gap:6px; font-size:13px; font-weight:500; color:var(--accent); text-decoration:none; font-family:var(--mono); }
+.goto-card .goto-link:active { opacity:0.7; }
+
+/* history */
+.acc-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:8px; margin-bottom:14px; }
+.acc-cell { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-sm); padding:10px 12px; text-align:center; }
+.acc-val   { font-size:20px; font-weight:600; font-family:var(--mono); }
+.acc-lbl   { font-size:10px; color:var(--faint); font-family:var(--mono); margin-top:2px; }
+.sec-label { font-size:10px; font-weight:500; letter-spacing:0.07em; text-transform:uppercase; color:var(--faint); margin-bottom:8px; font-family:var(--mono); }
+.hist-list { display:flex; flex-direction:column; }
+.hist-row { background:var(--surface); display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid var(--border); }
+.hist-row:first-child { border-radius:var(--r) var(--r) 0 0; } .hist-row:last-child { border-radius:0 0 var(--r) var(--r); border-bottom:none; } .hist-row:only-child { border-radius:var(--r); border-bottom:none; }
+.hist-date { font-size:11px; color:var(--faint); font-family:var(--mono); flex:0 0 52px; }
+.hist-wind { font-size:12px; color:var(--muted); flex:1; font-family:var(--mono); }
+.hist-dot  { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+.hist-felt { font-size:13px; font-weight:500; font-family:var(--mono); flex:0 0 18px; text-align:right; }
+.empty { padding:32px 16px; text-align:center; color:var(--faint); font-size:13px; font-family:var(--mono); }
+
+/* color helpers */
+.col-green{color:var(--green);} .col-amber{color:var(--amber);} .col-red{color:var(--red);}
+.bg-green{background:var(--green-bg);color:var(--green);} .bg-amber{background:var(--amber-bg);color:var(--amber);} .bg-red{background:var(--red-bg);color:var(--red);}
+
+/* map markers */
+.gps-user-dot { width:16px; height:16px; background:var(--accent); border:3px solid white; border-radius:50%; box-shadow:0 2px 8px rgba(26,106,244,0.4); }
+.gps-pulse { width:40px; height:40px; background:rgba(26,106,244,0.15); border-radius:50%; position:absolute; top:-12px; left:-12px; animation:pulse 2s ease-in-out infinite; }
+@keyframes pulse { 0%{transform:scale(0.8);opacity:0.8;} 50%{transform:scale(1.2);opacity:0.3;} 100%{transform:scale(0.8);opacity:0.8;} }
+.strip-dot { width:12px; height:12px; border-radius:50%; border:2px solid white; box-shadow:0 1px 4px rgba(0,0,0,0.3); cursor:pointer; }
+
+/* toast */
+#toast { position:fixed; bottom:220px; left:50%; transform:translateX(-50%) translateY(40px); background:var(--text); color:#fff; font-size:13px; font-family:var(--mono); padding:10px 20px; border-radius:20px; transition:transform 0.25s,opacity 0.25s; opacity:0; z-index:100; white-space:nowrap; pointer-events:none; }
+#toast.show { transform:translateX(-50%) translateY(0); opacity:1; }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<!-- TOP BAR -->
+<div id="topbar">
+  <div id="wind-pill">
+    <svg id="wind-pill-arrow" viewBox="0 0 28 28" style="width:28px;height:28px;flex-shrink:0;">
+      <circle cx="14" cy="14" r="12" fill="none" stroke="rgba(0,0,0,0.08)" stroke-width="1"/>
+      <polygon id="map-wind-arrow" points="14,4 16.5,20 14,17.5 11.5,20" fill="var(--accent)" transform="rotate(0,14,14)"/>
+    </svg>
+    <div style="flex:1;min-width:0;">
+      <div id="wind-pill-main">loading…</div>
+      <div id="wind-pill-sub"></div>
+    </div>
+  </div>
+  <div id="gps-pill">
+    <div id="gps-dot"></div>
+    <span id="gps-label">locating</span>
+  </div>
+</div>
+
+<!-- BOTTOM SHEET -->
+<div id="bottom-sheet">
+  <div id="sheet-inner">
+    <div id="sheet-handle"></div>
+    <div id="loading-card">
+      <div class="spinner"></div>
+      <div id="loading-msg">getting location…</div>
+    </div>
+    <div id="onshore-card">
+      <div id="onshore-eyebrow">you are at</div>
+      <div id="onshore-name">—</div>
+      <div id="onshore-parent">—</div>
+      <div id="onshore-row">
+        <div id="onshore-num">—</div>
+        <div id="onshore-right">
+          <div id="onshore-bar-bg"><div id="onshore-bar-fill"></div></div>
+          <span id="onshore-badge">—</span>
+        </div>
+      </div>
+      <button id="onshore-cta" onclick="openDetailFrom(nearestStrip)">View details &amp; record →</button>
+    </div>
+    <div id="nearby-card">
+      <div id="nearby-header">
+        <div id="nearby-title">Nearby beaches</div>
+        <div id="nearby-sub"></div>
+      </div>
+      <div id="nearby-rows"></div>
+    </div>
+  </div>
+</div>
+
+<!-- DETAIL PANEL -->
+<div id="detail-panel">
+  <div class="panel-topbar">
+    <div class="panel-back" onclick="closeDetail()">
+      <svg viewBox="0 0 24 24" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+    </div>
+    <div style="flex:1;">
+      <div class="panel-title" id="d-title">—</div>
+      <div class="panel-sub"   id="d-sub">—</div>
+    </div>
+    <div class="panel-action" id="d-hist-link">history</div>
+  </div>
+  <div class="panel-scroll">
+    <div class="detail-hero">
+      <div class="detail-score-num" id="d-score-num">—</div>
+      <div class="detail-score-label">predicted shelter · 0–10</div>
+      <div class="detail-badge" id="d-badge">—</div>
+    </div>
+    <div class="d-grid">
+      <div class="d-cell"><div class="d-cell-label">wind from</div><div class="d-cell-val" id="d-wdir">—</div></div>
+      <div class="d-cell"><div class="d-cell-label">speed</div><div class="d-cell-val" id="d-wspd">—</div></div>
+      <div class="d-cell"><div class="d-cell-label">gusts</div><div class="d-cell-val" id="d-wgust">—</div></div>
+      <div class="d-cell"><div class="d-cell-label">beach faces</div><div class="d-cell-val" id="d-facing">—</div></div>
+    </div>
+    <div class="terrain-card" id="terrain-card" style="display:none;">
+      <div style="flex-shrink:0;">
+        <svg class="compass-svg" viewBox="0 0 80 80" id="terrain-compass">
+          <circle cx="40" cy="40" r="36" fill="none" stroke="var(--border)" stroke-width="1"/>
+          <text x="40" y="10" text-anchor="middle" font-size="8" fill="var(--faint)" font-family="DM Mono">N</text>
+          <text x="40" y="74" text-anchor="middle" font-size="8" fill="var(--faint)" font-family="DM Mono">S</text>
+          <text x="8"  y="43" text-anchor="middle" font-size="8" fill="var(--faint)" font-family="DM Mono">W</text>
+          <text x="72" y="43" text-anchor="middle" font-size="8" fill="var(--faint)" font-family="DM Mono">E</text>
+        </svg>
+      </div>
+      <div style="flex:1;"><div class="terrain-row" id="terrain-info">loading terrain…</div></div>
+    </div>
+    <div id="obs-gate"></div>
+  </div>
+</div>
+
+<!-- HISTORY PANEL -->
+<div id="history-panel">
+  <div class="panel-topbar">
+    <div class="panel-back" onclick="closeHistory()">
+      <svg viewBox="0 0 24 24" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+    </div>
+    <div style="flex:1;">
+      <div class="panel-title" id="h-title">—</div>
+      <div class="panel-sub"   id="h-sub">—</div>
+    </div>
+  </div>
+  <div class="panel-scroll">
+    <div class="acc-grid">
+      <div class="acc-cell"><div class="acc-val" id="h-count">—</div><div class="acc-lbl">visits</div></div>
+      <div class="acc-cell"><div class="acc-val" id="h-pred">—</div><div class="acc-lbl">avg pred</div></div>
+      <div class="acc-cell"><div class="acc-val" id="h-felt">—</div><div class="acc-lbl">avg felt</div></div>
+    </div>
+    <div class="sec-label">visits</div>
+    <div class="hist-list" id="h-rows"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+/* ── Config ────────────────────────────────────────────── */
+const SHORE_M = 300;
+const ON_BEACH_M = 200;
+
+/* ── State ─────────────────────────────────────────────── */
+let gpsPos      = null;
+let currentWind = null;
+let currentStrip= null;
+let currentItem = null;
+let allScores   = [];
+let lastBundle    = null;
+let lastSnapshotId= null;
+let nearestStrip  = null;
+const obs = { sand_wind:null, water_state:null, comfort:null };
+let obsImageFile = null;
+let obsImageUrl  = null;
+const stripMarkers = {};
+
+/* ── Map ────────────────────────────────────────────────── */
+const map = L.map('map',{zoomControl:true,attributionControl:false}).setView([39.204,9.318],14);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:19}).addTo(map);
+
+const gpsIcon = L.divIcon({
+  className:'',
+  html:'<div class="gps-pulse"></div><div class="gps-user-dot"></div>',
+  iconSize:[16,16],iconAnchor:[8,8]
+});
+let gpsMarker = null;
+
+function stripIcon(score) {
+  const c = score>=7.5?'#1d7a45':score>=5?'#9a5a00':'#c0392b';
+  return L.divIcon({className:'',html:`<div class="strip-dot" style="background:${c}"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+}
+
+/* ── Helpers ────────────────────────────────────────────── */
+function hav(lat1,lon1,lat2,lon2){
+  const R=6371000,p1=lat1*Math.PI/180,p2=lat2*Math.PI/180;
+  const a=Math.sin((lat2-lat1)*Math.PI/360)**2+Math.cos(p1)*Math.cos(p2)*Math.sin((lon2-lon1)*Math.PI/360)**2;
+  return 2*R*Math.asin(Math.min(1,Math.sqrt(a)));
+}
+function scoreColor(s){return s>=7.5?'green':s>=5?'amber':'red';}
+function scoreLabel(s){return s>=7.5?'sheltered':s>=5?'moderate':s>=3?'exposed':'avoid';}
+function dirLabel(d){return['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'][Math.round(d/22.5)%16];}
+function relDate(iso){
+  const diff=(Date.now()-new Date(iso))/1000;
+  if(diff<3600)return Math.round(diff/60)+'m ago';
+  if(diff<86400)return Math.round(diff/3600)+'h ago';
+  return new Date(iso).toLocaleDateString('en-GB',{day:'numeric',month:'short'});
+}
+function normalize(bundle,gps){
+  return (bundle.ranked||[]).map(r=>{
+    const pred=typeof r.score==='number'?r.score:(r.score?.predicted??0);
+    const dm=typeof r.distance_m==='number'?r.distance_m:hav(gps.lat,gps.lon,r.strip.lat,r.strip.lon);
+    return{strip_id:r.strip_id,strip:r.strip,score:pred,
+      sand_label:r.label||r.sand_label||(r.score?.sand_label)||scoreLabel(pred),
+      scoreDetail:typeof r.score==='object'&&r.score?r.score:{predicted:pred},distance_m:dm};
+  });
+}
+
+/* ── Toast ──────────────────────────────────────────────── */
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'),2400);
+}
+
+/* ── API ────────────────────────────────────────────────── */
+async function api(path){
+  const r=await fetch(path),txt=await r.text();
+  if(!r.ok)throw new Error(txt||r.statusText);
+  return JSON.parse(txt);
+}
+async function post(path,body){
+  const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const txt=await r.text();
+  if(!r.ok)throw new Error(txt||r.statusText);
+  return txt?JSON.parse(txt):{};
+}
+
+/* ── GPS pill ───────────────────────────────────────────── */
+function setGPS(type,label){
+  document.getElementById('gps-dot').className=type;
+  document.getElementById('gps-label').textContent=label;
+}
+function getGPS(){
+  return new Promise((res,rej)=>{
+    if(!navigator.geolocation){rej(new Error('no geolocation'));return;}
+    navigator.geolocation.getCurrentPosition(
+      p=>res({lat:p.coords.latitude,lon:p.coords.longitude,accuracy:p.coords.accuracy}),
+      rej,{enableHighAccuracy:true,timeout:12000});
+  });
+}
+
+/* ── Sheet helpers ──────────────────────────────────────── */
+function sheetUp(){document.getElementById('bottom-sheet').classList.add('up');}
+function sheetLoading(msg){
+  document.getElementById('loading-card').style.display='flex';
+  document.getElementById('loading-msg').textContent=msg||'loading…';
+  document.getElementById('onshore-card').style.display='none';
+  document.getElementById('nearby-card').style.display='none';
+  sheetUp();
+}
+function sheetOnshore(item){
+  document.getElementById('loading-card').style.display='none';
+  document.getElementById('nearby-card').style.display='none';
+  const col=scoreColor(item.score);
+  document.getElementById('onshore-name').textContent=item.strip.name;
+  document.getElementById('onshore-parent').textContent=item.strip.parent_name||'';
+  const n=document.getElementById('onshore-num');
+  n.textContent=item.score.toFixed(1);n.className='col-'+col;
+  Object.assign(document.getElementById('onshore-bar-fill').style,
+    {width:Math.round(item.score*10)+'%',height:'100%',borderRadius:'2px',background:'var(--'+col+')'});
+  const b=document.getElementById('onshore-badge');
+  b.textContent=item.sand_label;b.className='bg-'+col;
+  nearestStrip=item;
+  document.getElementById('onshore-card').style.display='block';
+  sheetUp();
+}
+function sheetNearby(scores){
+  document.getElementById('loading-card').style.display='none';
+  document.getElementById('onshore-card').style.display='none';
+  document.getElementById('nearby-sub').textContent=scores.length+' strips · best first';
+  const rows=document.getElementById('nearby-rows');
+  rows.innerHTML='';
+  scores.forEach(item=>{
+    const col=scoreColor(item.score);
+    const dist=item.distance_m<1000?Math.round(item.distance_m)+'m':(item.distance_m/1000).toFixed(1)+'km';
+    const d=document.createElement('div');
+    d.className='nearby-row';
+    d.innerHTML=`
+      <div style="flex:1;min-width:0;">
+        <div class="nearby-name">${item.strip.name}</div>
+        <div class="nearby-dist">${dist} away</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0;">
+        <div class="nearby-score-num col-${col}">${item.score.toFixed(1)}</div>
+        <div class="nearby-score-label col-${col}">${item.sand_label}</div>
+      </div>`;
+    d.addEventListener('click',()=>openDetailFrom(item));
+    rows.appendChild(d);
+  });
+  document.getElementById('nearby-card').style.display='block';
+  sheetUp();
+}
+
+/* ── Boot ───────────────────────────────────────────────── */
+async function loadHome(){
+  sheetLoading('getting location…');
+  setGPS('','locating');
+  try {
+    gpsPos=await getGPS();
+    setGPS('ok','±'+Math.round(gpsPos.accuracy)+'m');
+    if(gpsMarker)gpsMarker.setLatLng([gpsPos.lat,gpsPos.lon]);
+    else gpsMarker=L.marker([gpsPos.lat,gpsPos.lon],{icon:gpsIcon,zIndexOffset:1000}).addTo(map);
+    map.setView([gpsPos.lat,gpsPos.lon],14);
+
+    sheetLoading('fetching conditions…');
+    const bundle=await api(`/api/score?lat=${gpsPos.lat}&lon=${gpsPos.lon}`);
+    lastBundle=bundle;currentWind=bundle.wind;lastSnapshotId=bundle.snapshot_id||null;
+    allScores=normalize(bundle,gpsPos);
+
+    const w=bundle.wind;
+    document.getElementById('wind-pill-main').textContent=
+      `${w.direction_label} ${Math.round(w.direction_deg)}° · ${Math.round(w.speed_kmh)} km/h`;
+    document.getElementById('wind-pill-sub').textContent=
+      `gusts ${w.gusts_kmh!=null?Math.round(w.gusts_kmh):'—'} km/h`;
+    document.getElementById('map-wind-arrow').setAttribute('transform',`rotate(${w.direction_deg},14,14)`);
+
+    // Strip markers on map
+    allScores.forEach(item=>{
+      const s=item.strip;
+      if(stripMarkers[s.id]){stripMarkers[s.id].setIcon(stripIcon(item.score));return;}
+      const m=L.marker([s.lat,s.lon],{icon:stripIcon(item.score),title:s.name}).addTo(map);
+      m.on('click',()=>openDetailFrom(item));
+      stripMarkers[s.id]=m;
+    });
+
+    // Shore detection: sort by distance, check nearest
+    const byDist=[...allScores].sort((a,b)=>a.distance_m-b.distance_m);
+    const nearest=byDist[0];
+    if(nearest&&nearest.distance_m<=SHORE_M) sheetOnshore(nearest);
+    else sheetNearby(allScores);
+
+  } catch(err) {
+    setGPS('err','error');
+    document.getElementById('loading-msg').textContent='';
+    document.getElementById('loading-card').innerHTML=
+      `<div style="padding:4px 0;font-family:var(--mono);font-size:12px;color:var(--red);">
+        ${err.message||'error'}<br><br>
+        <button class="btn-p" style="max-width:200px" onclick="loadHome()">retry</button>
+      </div>`;
+    sheetUp();
+  }
+}
+
+/* ── Detail panel ───────────────────────────────────────── */
+function openDetailFrom(item){
+  currentStrip=item.strip;currentItem=item;
+  obs.sand_wind=obs.water_state=obs.comfort=null;
+  obsImageFile=null;obsImageUrl=null;
+
+  document.getElementById('d-title').textContent=item.strip.name;
+  document.getElementById('d-sub').textContent=
+    item.distance_m<1000?`${Math.round(item.distance_m)}m away`:`${(item.distance_m/1000).toFixed(1)}km away`;
+
+  const col=scoreColor(item.score);
+  const n=document.getElementById('d-score-num');
+  n.textContent=item.score.toFixed(1);n.className='detail-score-num col-'+col;
+  const b=document.getElementById('d-badge');
+  b.textContent=item.sand_label;b.className='detail-badge bg-'+col;
+
+  const w=currentWind;
+  document.getElementById('d-wdir').textContent=`${w.direction_label} ${Math.round(w.direction_deg)}°`;
+  document.getElementById('d-wspd').textContent=`${Math.round(w.speed_kmh)} km/h`;
+  document.getElementById('d-wgust').textContent=w.gusts_kmh!=null?`${Math.round(w.gusts_kmh)} km/h`:'—';
+  document.getElementById('d-facing').textContent=item.strip.facing_deg!=null
+    ?`${dirLabel(item.strip.facing_deg)} ${Math.round(item.strip.facing_deg)}°`:'—';
+
+  document.getElementById('d-hist-link').onclick=()=>openHistory(item.strip.id,item.strip.name);
+
+  const onBeach = item.distance_m <= ON_BEACH_M;
+  const gate = document.getElementById('obs-gate');
+  if (onBeach) {
+    gate.innerHTML = `
+      <div class="obs-card">
+        <div class="obs-title">Record what you feel</div>
+        <div class="tap-group">
+          <div class="tap-label">wind on sand</div>
+          <div class="tap-options">
+            <div class="tap-opt" data-field="sand_wind" data-val="none">none</div>
+            <div class="tap-opt" data-field="sand_wind" data-val="light">light</div>
+            <div class="tap-opt" data-field="sand_wind" data-val="moderate">moderate</div>
+            <div class="tap-opt" data-field="sand_wind" data-val="strong">strong</div>
+          </div>
+        </div>
+        <div class="tap-group">
+          <div class="tap-label">water state</div>
+          <div class="tap-options">
+            <div class="tap-opt" data-field="water_state" data-val="flat">flat</div>
+            <div class="tap-opt" data-field="water_state" data-val="light_chop">light chop</div>
+            <div class="tap-opt" data-field="water_state" data-val="choppy">choppy</div>
+            <div class="tap-opt" data-field="water_state" data-val="rough">rough</div>
+          </div>
+        </div>
+        <div class="tap-group">
+          <div class="tap-label">overall comfort</div>
+          <div class="tap-options">
+            <div class="tap-opt" data-field="comfort" data-val="1">1</div>
+            <div class="tap-opt" data-field="comfort" data-val="2">2</div>
+            <div class="tap-opt" data-field="comfort" data-val="3">3</div>
+            <div class="tap-opt" data-field="comfort" data-val="4">4</div>
+            <div class="tap-opt" data-field="comfort" data-val="5">5</div>
+          </div>
+        </div>
+        <div class="photo-row">
+          <label class="photo-btn" id="photo-btn-label">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            Add photo
+            <input type="file" accept="image/*" capture="environment" id="obs-photo-input" style="display:none">
+          </label>
+          <div class="photo-preview" id="photo-preview" style="display:none"></div>
+        </div>
+        <textarea class="notes" id="obs-notes" placeholder="optional note…"></textarea>
+      </div>
+      <button class="btn-p" id="save-btn" onclick="saveObs()">Save observation</button>
+      <button class="btn-g" onclick="closeDetail()">Back without saving</button>`;
+    gate.querySelectorAll('.tap-opt').forEach(el => {
+      el.addEventListener('click', () => {
+        el.closest('.tap-options').querySelectorAll('.tap-opt').forEach(o => o.classList.remove('sel'));
+        el.classList.add('sel');
+        obs[el.dataset.field] = el.dataset.val;
+      });
+    });
+    document.getElementById('obs-photo-input').addEventListener('change', handlePhoto);
+  } else {
+    const dist = item.distance_m < 1000
+      ? `${Math.round(item.distance_m)}m`
+      : `${(item.distance_m / 1000).toFixed(1)}km`;
+    const mapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${item.strip.lat},${item.strip.lon}&travelmode=driving`;
+    gate.innerHTML = `
+      <div class="goto-card">
+        <div class="goto-icon">🏖</div>
+        <div class="goto-msg">You're <strong>${dist}</strong> from ${item.strip.name}.<br>
+          To record an observation, go to the beach and open Sheltr once you're on the sand.</div>
+        <a class="goto-link" href="${mapsUrl}" target="_blank" rel="noopener">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M13 5l7 7-7 7"/></svg>
+          Get directions
+        </a>
+      </div>
+      <button class="btn-g" onclick="closeDetail()">Back</button>`;
+  }
+
+  document.getElementById('detail-panel').classList.add('open');
+
+  const tlat=gpsPos?gpsPos.lat:item.strip.lat;
+  const tlon=gpsPos?gpsPos.lon:item.strip.lon;
+  loadTerrain(tlat,tlon);
+}
+function closeDetail(){document.getElementById('detail-panel').classList.remove('open');}
+
+/* ── Terrain compass ────────────────────────────────────── */
+async function loadTerrain(lat,lon){
+  const card=document.getElementById('terrain-card');
+  card.style.display='flex';
+  document.getElementById('terrain-info').textContent='fetching terrain…';
+  try{
+    const t=await api(`/api/terrain?lat=${lat}&lon=${lon}`);
+    renderCompass(t.shield);
+    const e=Object.entries(t.shield).map(([d,v])=>[parseFloat(d),v]);
+    e.sort((a,b)=>b[1]-a[1]);
+    const [bd,bv]=e[0],[wd,wv]=e[e.length-1];
+    document.getElementById('terrain-info').innerHTML=
+      `<span class="terrain-hi">max shield: ${dirLabel(bd)} (${(bv*100).toFixed(0)}%)</span><br>
+       most open: ${dirLabel(wd)} (${((1-wv)*100).toFixed(0)}% exposed)<br>
+       <span style="color:var(--faint)">OpenTopoData (SRTM 90m)</span>`;
+  }catch{document.getElementById('terrain-info').textContent='terrain unavailable';}
+}
+
+function renderCompass(shield){
+  const svg=document.getElementById('terrain-compass');
+  svg.querySelectorAll('.s-sec,.w-arr').forEach(e=>e.remove());
+  const cx=40,cy=40,r=28;
+  Object.entries(shield).forEach(([d,v])=>{
+    const dir=parseFloat(d);
+    const sa=(dir-11.25-90)*Math.PI/180,ea=(dir+11.25-90)*Math.PI/180;
+    const x1=cx+r*Math.cos(sa),y1=cy+r*Math.sin(sa),x2=cx+r*Math.cos(ea),y2=cy+r*Math.sin(ea);
+    const g=[29,122,69],rd=[192,57,43],mx=(a,b,t)=>Math.round(a+(b-a)*t);
+    const col=`rgb(${mx(rd[0],g[0],v)},${mx(rd[1],g[1],v)},${mx(rd[2],g[2],v)})`;
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('class','s-sec');
+    p.setAttribute('d',`M${cx},${cy} L${x1},${y1} A${r},${r} 0 0,1 ${x2},${y2} Z`);
+    p.setAttribute('fill',col);p.setAttribute('opacity',(0.3+v*0.5).toFixed(2));
+    svg.insertBefore(p,svg.firstChild.nextSibling);
+  });
+  if(currentWind){
+    const ang=(currentWind.direction_deg-90)*Math.PI/180;
+    const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('class','w-arr');
+    line.setAttribute('x1',cx);line.setAttribute('y1',cy);
+    line.setAttribute('x2',cx+34*Math.cos(ang));line.setAttribute('y2',cy+34*Math.sin(ang));
+    line.setAttribute('stroke','#1a6af4');line.setAttribute('stroke-width','2');
+    line.setAttribute('stroke-linecap','round');
+    svg.appendChild(line);
+  }
+}
+
+/* ── Photo capture ──────────────────────────────────────── */
+function handlePhoto(e){
+  const file=e.target.files[0];
+  if(!file)return;
+  obsImageFile=file;obsImageUrl=null;
+  const preview=document.getElementById('photo-preview');
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    preview.innerHTML=`<img src="${ev.target.result}"><div class="photo-remove" onclick="clearPhoto()">×</div>`;
+    preview.style.display='block';
+    document.getElementById('photo-btn-label').querySelector('span')||
+      (document.getElementById('photo-btn-label').childNodes[2].textContent=' Change');
+  };
+  reader.readAsDataURL(file);
+}
+function clearPhoto(){
+  obsImageFile=null;obsImageUrl=null;
+  const preview=document.getElementById('photo-preview');
+  preview.innerHTML='';preview.style.display='none';
+  const inp=document.getElementById('obs-photo-input');
+  if(inp)inp.value='';
+}
+
+/* ── Observation form ───────────────────────────────────── */
+async function saveObs(){
+  if(!obs.sand_wind||!obs.water_state||!obs.comfort){toast('fill in all three fields');return;}
+  if(!currentStrip){toast('select a strip first');return;}
+  const btn=document.getElementById('save-btn');
+  btn.disabled=true;btn.textContent='saving…';
+  try{
+    let imageUrl=null;
+    if(obsImageFile){
+      btn.textContent='uploading photo…';
+      const form=new FormData();
+      form.append('file',obsImageFile);
+      const r=await fetch('/api/upload-image',{method:'POST',body:form});
+      const txt=await r.text();
+      if(!r.ok)throw new Error(txt||'upload failed');
+      imageUrl=JSON.parse(txt).url;
+    }
+    btn.textContent='saving…';
+    await post('/api/observations',{
+      snapshot_id:lastSnapshotId,
+      strip_id:currentStrip.id,
+      felt_sand_wind:obs.sand_wind,
+      felt_water_state:obs.water_state,
+      felt_comfort:parseInt(obs.comfort,10),
+      notes:document.getElementById('obs-notes').value.trim()||null,
+      image_url:imageUrl,
+    });
+    obsImageFile=null;obsImageUrl=null;
+    toast('saved');closeDetail();
+  }catch(err){toast('error: '+err.message);}
+  finally{btn.disabled=false;btn.textContent='Save observation';}
+}
+
+/* ── History panel ──────────────────────────────────────── */
+function openHistory(stripId,stripName){
+  if(!stripId)return;
+  document.getElementById('h-title').textContent=stripName||stripId;
+  document.getElementById('h-sub').textContent='loading…';
+  document.getElementById('h-rows').innerHTML='<div class="empty">loading…</div>';
+  document.getElementById('history-panel').classList.add('open');
+  Promise.all([
+    api(`/api/observations?strip_id=${stripId}`),
+    api(`/api/accuracy?strip_id=${stripId}`),
+  ]).then(([obs_data,acc])=>{
+    document.getElementById('h-sub').textContent=`${acc.count??0} visits`;
+    document.getElementById('h-count').textContent=acc.count!=null?String(acc.count):'—';
+    document.getElementById('h-pred').textContent=acc.avg_predicted!=null?Number(acc.avg_predicted).toFixed(1):'—';
+    document.getElementById('h-felt').textContent=acc.avg_felt!=null?Number(acc.avg_felt).toFixed(1):'—';
+    if(!obs_data.length){document.getElementById('h-rows').innerHTML='<div class="empty">no visits yet</div>';return;}
+    document.getElementById('h-rows').innerHTML=obs_data.map(o=>{
+      const col=o.felt_comfort>=4?'green':o.felt_comfort>=3?'amber':'red';
+      const snap=o.score_snapshots||{};
+      const wd=snap.wind_dir_deg??o.wind_dir_deg;
+      const ws=snap.wind_speed_kmh??o.wind_speed_kmh;
+      const img=o.image_url?`<img src="${o.image_url}" style="width:28px;height:28px;object-fit:cover;border-radius:4px;flex-shrink:0;">`:'';
+      return`<div class="hist-row">
+        <div class="hist-date">${relDate(o.created_at||o.recorded_at)}</div>
+        <div class="hist-wind">${wd!=null?dirLabel(wd):'—'} ${ws!=null?Math.round(ws)+'km/h':''}</div>
+        ${img}
+        <div class="hist-dot" style="background:var(--${col})"></div>
+        <div class="hist-felt col-${col}">${o.felt_comfort??'—'}</div>
+      </div>`;
+    }).join('');
+  }).catch(err=>{
+    document.getElementById('h-rows').innerHTML=`<div class="empty">error: ${err.message}</div>`;
+  });
+}
+function closeHistory(){document.getElementById('history-panel').classList.remove('open');}
+
+/* ── Go ─────────────────────────────────────────────────── */
+loadHome();
+</script>
+</body>
+</html>
