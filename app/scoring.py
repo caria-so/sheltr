@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from dataclasses import asdict, dataclass
 
-from app.strips import STRIPS, SandStrip, haversine_m
+from app.strips import SandStrip, haversine_m, load_strips_from_db
 from app.terrain import TerrainProfile, sector_key
 from app.wind import WindData
 
@@ -87,12 +87,32 @@ def score_all_strips(
     terrain: TerrainProfile,
 ) -> list[dict]:
     """Rank all strips best-first using shared wind + terrain at observer."""
+    strips = load_strips_from_db()
     scored: list[tuple[float, SandStrip, ShieldScore, float]] = []
-    for strip in STRIPS:
+    
+    for strip in strips:
         sh = shelter_score(strip, wind, terrain, terrain_validated=True)
-        dist = haversine_m(lat, lon, strip.lat, strip.lon)
+        
+        # Calculate distance considering polygons
+        if strip.geometry:
+            # Check if user is inside polygon
+            from app.strips import point_in_polygon
+            if point_in_polygon(lat, lon, strip.geometry):
+                dist = 0.0
+            else:
+                # Distance to nearest edge
+                min_dist = float('inf')
+                for coord in strip.geometry:
+                    edge_dist = haversine_m(lat, lon, coord[0], coord[1])
+                    min_dist = min(min_dist, edge_dist)
+                dist = min_dist
+        else:
+            dist = haversine_m(lat, lon, strip.lat, strip.lon)
+        
         scored.append((sh.predicted, strip, sh, dist))
+    
     scored.sort(key=lambda x: x[0], reverse=True)
+    
     return [
         {
             "strip_id": strip.id,

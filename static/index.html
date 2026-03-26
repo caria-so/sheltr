@@ -23,13 +23,16 @@
   --mono:'DM Mono',monospace; --sans:'DM Sans',sans-serif;
   --r:12px; --r-sm:8px;
   --safe-bottom:env(safe-area-inset-bottom,0px);
+  /* Fixed cap — list scrolls inside; map stays visible above (~60% of screen) */
+  --sheet-h:min(40vh, 400px);
 }
 html,body { height:100%; width:100%; overflow:hidden; font-family:var(--sans); color:var(--text); }
 
-/* MAP */
-#map { position:fixed; inset:0; z-index:0; }
+/* MAP — full viewport behind the sheet; tiles stay visible in the top band */
+#map { position:fixed; inset:0; z-index:0; width:100%; height:100%; }
+.leaflet-container { background:var(--bg); }
 .leaflet-control-attribution { display:none; }
-.leaflet-bottom.leaflet-right { bottom:200px !important; right:12px !important; }
+.leaflet-bottom.leaflet-right { bottom:calc(var(--sheet-h) + 28px) !important; right:12px !important; }
 
 /* TOP BAR */
 #topbar {
@@ -54,27 +57,44 @@ html,body { height:100%; width:100%; overflow:hidden; font-family:var(--sans); c
 #gps-dot { width:7px; height:7px; border-radius:50%; background:var(--faint); flex-shrink:0; }
 #gps-dot.ok { background:var(--green); } #gps-dot.warn { background:var(--amber); } #gps-dot.err { background:var(--red); }
 
-/* BOTTOM SHEET */
+/* BOTTOM SHEET — fixed height when open so flex/content can’t grow to 100vh */
 #bottom-sheet {
   position:fixed; bottom:0; left:0; right:0; z-index:20;
   transform:translateY(100%); transition:transform 0.32s cubic-bezier(0.4,0,0.2,1);
+  display:flex; flex-direction:column;
+  overflow:hidden;
+  pointer-events:none;
+  /* closed: don’t reserve space; open: explicit height (see .up) */
+  max-height:100%;
 }
-#bottom-sheet.up { transform:translateY(0); }
+#bottom-sheet.up {
+  transform:translateY(0);
+  pointer-events:auto;
+  height:var(--sheet-h);
+  max-height:var(--sheet-h);
+}
 #sheet-inner {
   background:var(--surface); border-radius:20px 20px 0 0;
   border-top:1px solid var(--border); box-shadow:0 -4px 24px rgba(0,0,0,0.10);
-  overflow:hidden; padding-bottom:var(--safe-bottom);
+  padding-bottom:var(--safe-bottom);
+  flex:1;
+  min-height:0;
+  height:100%;
+  max-height:100%;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
 }
-#sheet-handle { width:36px; height:4px; background:var(--border-md); border-radius:2px; margin:10px auto 0; }
+#sheet-handle { width:36px; height:4px; background:var(--border-md); border-radius:2px; margin:10px auto 0; flex-shrink:0; }
 
 /* loading card */
-#loading-card { display:flex; align-items:center; gap:12px; padding:18px 16px; }
+#loading-card { display:flex; align-items:center; gap:12px; padding:18px 16px; flex-shrink:0; }
 .spinner { width:20px; height:20px; border:2px solid var(--border-md); border-top-color:var(--text); border-radius:50%; animation:spin 0.7s linear infinite; flex-shrink:0; }
 @keyframes spin { to { transform:rotate(360deg); } }
 #loading-msg { font-size:13px; color:var(--muted); font-family:var(--mono); }
 
 /* on-shore card */
-#onshore-card { display:none; padding:14px 16px 16px; }
+#onshore-card { display:none; padding:14px 16px 16px; flex-shrink:0; }
 #onshore-eyebrow { font-size:10px; font-family:var(--mono); color:var(--faint); text-transform:uppercase; letter-spacing:0.06em; margin-bottom:4px; }
 #onshore-name   { font-size:20px; font-weight:600; margin-bottom:2px; }
 #onshore-parent { font-size:12px; color:var(--muted); margin-bottom:14px; }
@@ -88,10 +108,17 @@ html,body { height:100%; width:100%; overflow:hidden; font-family:var(--sans); c
 #onshore-cta:active { opacity:0.8; }
 
 /* nearby list */
-#nearby-card { display:none; padding:0 0 8px; }
-#nearby-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px 10px; }
+#nearby-card { display:none; padding:0 0 8px; flex:1; min-height:0; flex-direction:column; }
+#nearby-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px 10px; flex-shrink:0; }
 #nearby-title { font-size:13px; font-weight:600; }
 #nearby-sub   { font-size:11px; color:var(--muted); font-family:var(--mono); }
+#nearby-rows {
+  overflow-y:auto;
+  -webkit-overflow-scrolling:touch;
+  flex:1 1 auto;
+  min-height:0;
+  overscroll-behavior:contain;
+}
 .nearby-row { display:flex; align-items:center; gap:12px; padding:11px 16px; border-top:1px solid var(--border); cursor:pointer; }
 .nearby-row:active { background:var(--bg); }
 .nearby-name  { font-size:14px; font-weight:500; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -350,10 +377,33 @@ const gpsIcon = L.divIcon({
   iconSize:[16,16],iconAnchor:[8,8]
 });
 let gpsMarker = null;
+const beachPolygons = {};
 
 function stripIcon(score) {
   const c = score>=7.5?'#1d7a45':score>=5?'#9a5a00':'#c0392b';
   return L.divIcon({className:'',html:`<div class="strip-dot" style="background:${c}"></div>`,iconSize:[12,12],iconAnchor:[6,6]});
+}
+
+function scoreToColor(score) {
+  return score>=7.5?'#1d7a45':score>=5?'#9a5a00':'#c0392b';
+}
+
+/** Flat ring [[lat|lng, …], …] or GeoJSON Polygon coordinates[0]. */
+function stripGeometryRing(raw) {
+  if (!raw) return [];
+  if (raw.type === 'Polygon' && raw.coordinates && raw.coordinates[0])
+    return raw.coordinates[0];
+  if (Array.isArray(raw) && raw.length && Array.isArray(raw[0])) return raw;
+  return [];
+}
+
+/** Leaflet wants [lat, lng]. DB / GeoJSON often use [lng, lat]. */
+function ringLatLngForLeaflet(geometry) {
+  const ring = stripGeometryRing(geometry);
+  if (ring.length < 3) return [];
+  const [a0, a1] = ring[0];
+  const looksLngLat = Math.abs(a0) <= 20 && Math.abs(a1) >= 35;
+  return ring.map((c) => (looksLngLat ? [c[1], c[0]] : [c[0], c[1]]));
 }
 
 /* ── Helpers ────────────────────────────────────────────── */
@@ -463,7 +513,7 @@ function sheetNearby(scores){
     d.addEventListener('click',()=>openDetailFrom(item));
     rows.appendChild(d);
   });
-  document.getElementById('nearby-card').style.display='block';
+  document.getElementById('nearby-card').style.display='flex';
   sheetUp();
 }
 
@@ -490,13 +540,37 @@ async function loadHome(){
       `gusts ${w.gusts_kmh!=null?Math.round(w.gusts_kmh):'—'} km/h`;
     document.getElementById('map-wind-arrow').setAttribute('transform',`rotate(${w.direction_deg},14,14)`);
 
-    // Strip markers on map
+    // Beach polygons (when geometry exists) or dot markers as fallback
     allScores.forEach(item=>{
       const s=item.strip;
-      if(stripMarkers[s.id]){stripMarkers[s.id].setIcon(stripIcon(item.score));return;}
-      const m=L.marker([s.lat,s.lon],{icon:stripIcon(item.score),title:s.name}).addTo(map);
-      m.on('click',()=>openDetailFrom(item));
-      stripMarkers[s.id]=m;
+      const ring = ringLatLngForLeaflet(s.geometry);
+      if (ring.length >= 3) {
+        if (!beachPolygons[s.id]) {
+          const polygon = L.polygon(ring, {
+            color: scoreToColor(item.score),
+            weight: 2,
+            opacity: 0.85,
+            fillColor: scoreToColor(item.score),
+            fillOpacity: 0.28,
+          }).addTo(map);
+          polygon.bindTooltip(s.name, { sticky: true });
+          polygon.on('click', () => openDetailFrom(item));
+          beachPolygons[s.id] = polygon;
+        } else {
+          beachPolygons[s.id].setStyle({
+            color: scoreToColor(item.score),
+            fillColor: scoreToColor(item.score),
+          });
+        }
+      } else {
+        if (stripMarkers[s.id]) {
+          stripMarkers[s.id].setIcon(stripIcon(item.score));
+          return;
+        }
+        const m = L.marker([s.lat, s.lon], { icon: stripIcon(item.score), title: s.name }).addTo(map);
+        m.on('click', () => openDetailFrom(item));
+        stripMarkers[s.id] = m;
+      }
     });
 
     // Shore detection: sort by distance, check nearest
@@ -504,6 +578,9 @@ async function loadHome(){
     const nearest=byDist[0];
     if(nearest&&nearest.distance_m<=SHORE_M) sheetOnshore(nearest);
     else sheetNearby(allScores);
+
+    requestAnimationFrame(() => { map.invalidateSize(); });
+    setTimeout(() => { map.invalidateSize(); }, 400);
 
   } catch(err) {
     setGPS('err','error');

@@ -1,0 +1,2 @@
+overpy>=0.6
+shapely>=2.0.0
